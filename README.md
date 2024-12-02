@@ -31,13 +31,16 @@ brew install cmake
 brew install qt@6
 
 # Clone and build
-git clone https://github.com/mandipadk/Suduko.git
+git clone https://github.com/Kandel-Bibas/Suduko.git
 cd Suduko
 mkdir build && cd build
 cmake ..
 make
-# or
+# or on the main directory
 cmake . && make && ./bin/SudokuSolver
+
+#clean up
+rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile bin
 ```
 
 ### Linux (Ubuntu/Debian)
@@ -49,7 +52,7 @@ sudo apt install cmake
 sudo apt install qt6-base-dev
 
 # Clone and build
-git clone https://github.com/mandipadk/Suduko.git
+git clone https://github.com/Kandel-Bibas/Suduko.git
 cd Suduko
 mkdir build && cd build
 cmake ..
