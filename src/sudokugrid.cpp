@@ -17,7 +17,157 @@ SudokuGrid::SudokuGrid(QWidget *parent)
     , currentCell(nullptr)
     , solver(std::vector<std::vector<int>>(9, std::vector<int>(9, 0)))
 {
+    // Set up saves directory
+    savesDirectory = QDir::homePath() + "/.sudoku_saves";
+    ensureSavesDirectoryExists();
+    
     createGrid();
+}
+
+void SudokuGrid::ensureSavesDirectoryExists() {
+    QDir dir(savesDirectory);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+}
+
+bool SudokuGrid::savePuzzleToFile(const QString& filename) {
+    QString actualFilename = filename;
+    if (actualFilename.isEmpty()) {
+        // Generate filename based on current date/time
+        actualFilename = QDateTime::currentDateTime().toString("yyyy-MM-dd_hh-mm-ss") + ".sudoku";
+    }
+    
+    if (!actualFilename.endsWith(".sudoku")) {
+        actualFilename += ".sudoku";
+    }
+    
+    QString fullPath = savesDirectory + "/" + actualFilename;
+    QFile file(fullPath);
+    
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return false;
+    }
+    
+    QTextStream out(&file);
+    
+    // Save current state
+    out << "# Sudoku puzzle saved on " << QDateTime::currentDateTime().toString() << "\n";
+    out << "# Format: Each line represents a row, empty cells are 0\n\n";
+    
+    // Save grid state
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            QString text = cells[i][j]->text();
+            out << (text.isEmpty() ? "0" : text);
+            if (j < 8) out << " ";
+        }
+        out << "\n";
+    }
+    
+    // Save notes if any exist
+    if (!notes.empty()) {
+        out << "\n# Notes:\n";
+        for (int i = 0; i < 9; ++i) {
+            for (int j = 0; j < 9; ++j) {
+                auto it = notes.find(cells[i][j]);
+                if (it != notes.end() && !it->second.empty()) {
+                    out << i << " " << j << ":";
+                    for (int note : it->second) {
+                        out << " " << note;
+                    }
+                    out << "\n";
+                }
+            }
+        }
+    }
+    
+    file.close();
+    emit puzzleSaved(actualFilename);
+    return true;
+}
+
+bool SudokuGrid::loadPuzzleFromFile(const QString& filename) {
+    QString fullPath = savesDirectory + "/" + filename;
+    QFile file(fullPath);
+    
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+    
+    QTextStream in(&file);
+    
+    // Clear current state
+    clear();
+    notes.clear();
+    
+    // Skip comments
+    QString line;
+    while (!in.atEnd()) {
+        line = in.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith("#")) continue;
+        break;
+    }
+    
+    // Read grid state
+    int row = 0;
+    do {
+        if (line.isEmpty() || line.startsWith("#")) break;
+        
+        QStringList values = line.split(" ", Qt::SkipEmptyParts);
+        if (values.size() != 9) continue;
+        
+        for (int col = 0; col < 9; ++col) {
+            int value = values[col].toInt();
+            if (value > 0 && value <= 9) {
+                cells[row][col]->setText(QString::number(value));
+            }
+        }
+        
+        row++;
+        if (row >= 9) break;
+        
+    } while (!in.atEnd() && (line = in.readLine().trimmed(), true));
+    
+    // Read notes if they exist
+    while (!in.atEnd()) {
+        line = in.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith("#")) continue;
+        
+        // Parse note line: "row col: note1 note2 ..."
+        QStringList parts = line.split(":", Qt::SkipEmptyParts);
+        if (parts.size() != 2) continue;
+        
+        QStringList pos = parts[0].trimmed().split(" ", Qt::SkipEmptyParts);
+        if (pos.size() != 2) continue;
+        
+        int noteRow = pos[0].toInt();
+        int noteCol = pos[1].toInt();
+        if (noteRow < 0 || noteRow >= 9 || noteCol < 0 || noteCol >= 9) continue;
+        
+        QStringList noteValues = parts[1].trimmed().split(" ", Qt::SkipEmptyParts);
+        std::vector<int> cellNotes;
+        for (const QString& note : noteValues) {
+            int value = note.toInt();
+            if (value > 0 && value <= 9) {
+                cellNotes.push_back(value);
+            }
+        }
+        
+        if (!cellNotes.empty()) {
+            notes[cells[noteRow][noteCol]] = cellNotes;
+            updateCellNotes(cells[noteRow][noteCol]);
+        }
+    }
+    
+    file.close();
+    emit puzzleLoaded(filename);
+    return true;
+}
+
+QStringList SudokuGrid::getSavedPuzzleFiles() const {
+    QDir dir(savesDirectory);
+    return dir.entryList(QStringList() << "*.sudoku", QDir::Files, QDir::Time);
 }
 
 void SudokuGrid::createGrid() {
@@ -48,22 +198,15 @@ void SudokuGrid::createGrid() {
                 emit moveAdded();
             });
             
-            // Handle cell selection
-            connect(cells[i][j], &QLineEdit::selectionChanged, this, [this, cell = cells[i][j]]() {
-                if (currentCell != cell) {
-                    if (currentCell) {
-                        styleCell(currentCell, -1, -1);
-                    }
-                    currentCell = cell;
-                    cell->setStyleSheet(cell->styleSheet() + QString(R"(
-                        QLineEdit {
-                            background-color: %1;
-                            border: 2px solid #0984e3;
-                        }
-                    )").arg(isDarkTheme ? "#485460" : "#f5f6fa"));
-                    emit cellSelected(cell);
+            // Handle cell focus
+            connect(cells[i][j], &QLineEdit::cursorPositionChanged, this, [this, cell = cells[i][j]]() {
+                if (cell->hasFocus()) {
+                    selectCell(cell);
                 }
             });
+            
+            // Handle mouse click
+            cells[i][j]->installEventFilter(this);
             
             styleCell(cells[i][j], i, j);
             layout->addWidget(cells[i][j], i, j);
@@ -71,6 +214,37 @@ void SudokuGrid::createGrid() {
     }
     
     applyTheme(false); // Default to light theme
+}
+
+bool SudokuGrid::eventFilter(QObject* obj, QEvent* event) {
+    QLineEdit* cell = qobject_cast<QLineEdit*>(obj);
+    if (cell && event->type() == QEvent::MouseButtonPress) {
+        selectCell(cell);
+        return false;
+    }
+    return QWidget::eventFilter(obj, event);
+}
+
+void SudokuGrid::selectCell(QLineEdit* cell) {
+    if (!cell || cell == currentCell) return;
+    
+    // Clear previous selection
+    if (currentCell) {
+        styleCell(currentCell, -1, -1);
+    }
+    
+    // Update current cell
+    currentCell = cell;
+    currentCell->setFocus();
+    
+    cell->setStyleSheet(cell->styleSheet() + QString(R"(
+        QLineEdit {
+            background-color: %1;
+            border: 2px solid #0984e3;
+        }
+    )").arg(isDarkTheme ? "#485460" : "#f5f6fa"));
+    
+    emit cellSelected(cell);
 }
 
 void SudokuGrid::styleCell(QLineEdit* cell, int row, int col) {
@@ -136,7 +310,25 @@ void SudokuGrid::validateInput(QLineEdit* cell) {
         bool ok;
         int value = text.toInt(&ok);
         if (ok && value >= 1 && value <= 9) {
+            // Store the current state before validation
+            auto currentGrid = getGrid();
             cell->setText(QString::number(value));
+            
+            // Check if the move creates any conflicts
+            if (!isValid()) {
+                emit mistakeAdded();  // Signal that a mistake was made
+                animateCell(cell, "#ff6b6b");  // Visual feedback for mistake
+            } else {
+                // Award points for correct moves
+                bool isSolvable = solver.solve();
+                solver.setGrid(currentGrid);  // Reset solver's grid
+                if (isSolvable) {
+                    emit scoreIncreased(10);  // Award 10 points for valid move
+                    if (isFull() && isValid()) {
+                        emit scoreIncreased(100);  // Bonus for completing puzzle
+                    }
+                }
+            }
             hasGridChanged = true;
         } else {
             cell->clear();
@@ -692,22 +884,46 @@ void SudokuGrid::newGame(const QString& difficulty) {
         {"Easy", {
             "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
             "170000006000061000004000700060004003080070050500800070007000400000150000200000098",
-            "200080300060070084030500209000105408000000000402706000301007040720040060004010003"
+            "200080300060070084030500209000105408000000000402706000301007040720040060004010003",
+            "000000657702400100350006000200000740000052000064000008000100503007009204928000000",
+            "020000000000600003074080000000003002080040010600500000000010780500009000000000040",
+            "100007090030020008009600500005300900010080002600004000300000010040000007007000300",
+            "000000012000000003002300400001800005060070800000009000008500000900040500470000090",
+            "000200000000060700700000009800000040010000050040000003200000004003010000000008000",
+            "000000657702400100350006000200000740000052000064000008000100503007009204928000000"
         }},
         {"Medium", {
             "009000400200009000087002090030070502000000000704050060070200140000800007006000800",
             "020000000000600003074080000000003002080040010600500000000010780500009000000000040",
-            "000000907000420180000705026100904000050000040000507009920108000034059000507000000"
+            "000000907000420180000705026100904000050000040000507009920108000034059000507000000",
+            "020000000000700003074080000000003002080040010600500000000010780500009000000000040",
+            "300000000970010000600583000200000900040020000000600008006040000090000307000001402",
+            "000090200004000000100308000052007006000000000400100987000605001000000600008070000",
+            "000000000900000084062300050000600200070102030003007000020009140690000007000000000",
+            "000000000079050180800000007007306800450708096003402700700000009016030420000000000",
+            "000000000001900500960001070000700004000030000300005000080200049002008700000000000"
         }},
         {"Hard", {
             "400000805030000000000700000020000060000080400000010000000603070500200000104000000",
             "520006000000000701300000000000400800600000050000000000041800000000030020008700000",
-            "600000803040700000000000000000504070300200000106000000020000050000080600000010000"
+            "600000803040700000000000000000504070300200000106000000020000050000080600000010000",
+            "000000000079050180800000007007306800450708096003402700700000009016030420000000000",
+            "000000000001900500960001070000700004000030000300005000080200049002008700000000000",
+            "000000052080000000000700340000900000000080000070000600004600800000000000000000000",
+            "000075400000000008080190000300001060000000034000068170204000603900000401530000000",
+            "300000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000000000000000000000000000000000000000000000000000"
         }},
         {"Expert", {
             "800000000003600000070090200050007000000045700000100030001000068008500010090000400",
             "000000085000210009960080100500800016000000000890006007009070052300054000480000000",
-            "000200000000060700700000009800000040010000050040000003200000004003010000000008000"
+            "000200000000060700700000009800000040010000050040000003200000004003010000000008000",
+            "000070100000800005900200000000400800100000002005003000000005009700006000002010000",
+            "000000801700200000000600000000500070010000050060003000000009000000001006803000000",
+            "000000000900000084062300050000600200070102030003007000020009140690000007000000000",
+            "000000000079050180800000007007306800450708096003402700700000009016030420000000000",
+            "000000000001900500960001070000700004000030000300005000080200049002008700000000000",
+            "000000052080000000000700340000900000000080000070000600004600800000000000000000000"
         }}
     };
     
@@ -723,4 +939,8 @@ void SudokuGrid::newGame(const QString& difficulty) {
     
     // Save initial state
     pushState();
+    
+    // Reset score and mistakes
+    emit scoreReset();
+    emit mistakesReset();
 } 

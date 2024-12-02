@@ -37,6 +37,7 @@ private:
     QString getButtonStyle(const QString& color);
     void applyTheme(bool isDark);
     void updateStats();
+    void updateButtonStyle(QPushButton* button);
     
     SudokuGrid *gridWidget;
     QPushButton *solveButton;
