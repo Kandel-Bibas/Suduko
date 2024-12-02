@@ -5,6 +5,10 @@
 #include <QPropertyAnimation>
 #include <QTimer>
 #include <QRandomGenerator>
+#include <QFile>
+#include <QDateTime>
+#include <QDir>
+#include <QEvent>
 #include "solver.h"
 #include <vector>
 #include <optional>
@@ -42,6 +46,11 @@ public:
     bool isNotesMode() const;
     void setNotesMode(bool enabled);
     void toggleNote(QLineEdit* cell, int number);
+    
+    // New methods for file operations
+    bool savePuzzleToFile(const QString& filename = QString());
+    bool loadPuzzleFromFile(const QString& filename);
+    QStringList getSavedPuzzleFiles() const;
 
 signals:
     void gridChanged();
@@ -49,6 +58,15 @@ signals:
     void moveAdded();
     void puzzleSolved(int timeInSeconds);
     void cellSelected(QLineEdit* cell);
+    void puzzleSaved(const QString& filename);
+    void puzzleLoaded(const QString& filename);
+    void mistakeAdded();  // Signal when a mistake is made
+    void mistakesReset(); // Signal to reset mistakes counter
+    void scoreIncreased(int points);  // Signal when score should increase
+    void scoreReset();    // Signal to reset score
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
     QGridLayout *layout;
@@ -62,6 +80,7 @@ private:
     QLineEdit* currentCell;
     std::map<QLineEdit*, std::vector<int>> notes;
     SudokuSolver solver;
+    QString savesDirectory;
 
     void createGrid();
     void styleCell(QLineEdit* cell, int row, int col);
@@ -78,4 +97,6 @@ private:
     void applyState(const GridState& state);
     void updateCellNotes(QLineEdit* cell);
     void highlightCell(QLineEdit* cell, bool isError);
+    void ensureSavesDirectoryExists();
+    void selectCell(QLineEdit* cell);
 }; 

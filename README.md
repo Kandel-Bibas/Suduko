@@ -2,7 +2,7 @@
 
 A modern Sudoku puzzle solver with a clean, dark-themed GUI built using Qt6 and C++17. The solver uses a Ternary Search Tree algorithm for efficient puzzle solving.
 
-![Sudoku Solver Screenshot](screenshots/app.png)
+![Sudoku Solver Screenshot](https://i.ibb.co/rF3HpBb/IMG-6884.png)
 
 ## Features
 
@@ -66,7 +66,7 @@ make
 3. Open Command Prompt and run:
 
 ```cmd
-git clone https://github.com/mandipadk/Suduko.git
+git clone https://github.com/Kandel-Bibas/Suduko.git
 cd Suduko
 mkdir build
 cd build
