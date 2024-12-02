@@ -1,81 +1,163 @@
 #include "sudokugrid.h"
 #include <QRegularExpressionValidator>
+#include <QPropertyAnimation>
+#include <QGraphicsOpacityEffect>
+#include <QTime>
+#include <QVBoxLayout>
+#include <QFrame>
 #include <set>
 
-SudokuGrid::SudokuGrid(QWidget *parent) : QWidget(parent) {
-    layout = new QGridLayout(this);
-    layout->setSpacing(2);
+SudokuGrid::SudokuGrid(QWidget *parent)
+    : QWidget(parent)
+    , layout(nullptr)
+    , hintTimer(nullptr)
+    , hintsEnabled(false)
+    , isDarkTheme(false)
+    , notesMode(false)
+    , currentCell(nullptr)
+    , solver(std::vector<std::vector<int>>(9, std::vector<int>(9, 0)))
+{
     createGrid();
 }
 
 void SudokuGrid::createGrid() {
+    layout = new QGridLayout(this);
+    layout->setSpacing(2);
+    layout->setContentsMargins(20, 20, 20, 20);
+    
     cells.resize(9, std::vector<QLineEdit*>(9));
     
     for (int i = 0; i < 9; ++i) {
         for (int j = 0; j < 9; ++j) {
-            auto cell = new QLineEdit(this);
-            cell->setAlignment(Qt::AlignCenter);
-            cell->setMaxLength(1);
-            cell->setFixedSize(50, 50);
+            cells[i][j] = new QLineEdit(this);
+            cells[i][j]->setAlignment(Qt::AlignCenter);
+            cells[i][j]->setMaxLength(1);
+            cells[i][j]->setFixedSize(65, 65);
+            cells[i][j]->setFont(QFont("SF Pro Display", 28, QFont::DemiBold));
             
-            // Set input validation for numbers 1-9 only
-            QRegularExpression rx("[1-9]");
-            cell->setValidator(new QRegularExpressionValidator(rx, cell));
+            // Set validator for numbers 1-9 only
+            QRegularExpressionValidator* validator = new QRegularExpressionValidator(QRegularExpression("[1-9]"), cells[i][j]);
+            cells[i][j]->setValidator(validator);
             
-            styleCell(cell, i, j);
-            
-            connect(cell, &QLineEdit::textChanged, [this, cell]() {
+            // Connect signals for real-time validation
+            connect(cells[i][j], &QLineEdit::textChanged, this, [this, cell = cells[i][j]]() {
                 validateInput(cell);
-                emit gridChanged();
-                emit validityChanged(isValid());
             });
             
-            cells[i][j] = cell;
-            layout->addWidget(cell, i, j);
+            connect(cells[i][j], &QLineEdit::textEdited, this, [this]() {
+                emit moveAdded();
+            });
+            
+            // Handle cell selection
+            connect(cells[i][j], &QLineEdit::selectionChanged, this, [this, cell = cells[i][j]]() {
+                if (currentCell != cell) {
+                    if (currentCell) {
+                        styleCell(currentCell, -1, -1);
+                    }
+                    currentCell = cell;
+                    cell->setStyleSheet(cell->styleSheet() + QString(R"(
+                        QLineEdit {
+                            background-color: %1;
+                            border: 2px solid #0984e3;
+                        }
+                    )").arg(isDarkTheme ? "#485460" : "#f5f6fa"));
+                    emit cellSelected(cell);
+                }
+            });
+            
+            styleCell(cells[i][j], i, j);
+            layout->addWidget(cells[i][j], i, j);
         }
     }
+    
+    applyTheme(false); // Default to light theme
 }
 
 void SudokuGrid::styleCell(QLineEdit* cell, int row, int col) {
-    QString baseStyle = 
-        "QLineEdit { "
-        "   background-color: #ECF0F1; "
-        "   color: #2C3E50; "
-        "   font-size: 24px; "
-        "   font-weight: bold; "
-        "   font-family: 'Arial', sans-serif; "
-        "   border: 1px solid #BDC3C7; ";
-
-    // Add borders based on 3x3 grid sections
-    if (row % 3 == 0 && row != 0) {
-        baseStyle += "border-top: 2px solid #2C3E50; ";
-    }
-    if (col % 3 == 0 && col != 0) {
-        baseStyle += "border-left: 2px solid #2C3E50; ";
-    }
+    if (!cell) return;
     
-    baseStyle += "} "
-                 "QLineEdit:focus { "
-                 "   background-color: #D5DBDB; "
-                 "   border: 2px solid #3498DB; "
-                 "} "
-                 "QLineEdit:hover { "
-                 "   background-color: #D5DBDB; "
-                 "} "
-                 "QLineEdit[readOnly=\"true\"] { "
-                 "   background-color: #BDC3C7; "
-                 "   color: #7F8C8D; "
-                 "}";
+    // Calculate borders
+    bool isTopEdge = row % 3 == 0;
+    bool isBottomEdge = row % 3 == 2;
+    bool isLeftEdge = col % 3 == 0;
+    bool isRightEdge = col % 3 == 2;
     
-    cell->setStyleSheet(baseStyle);
+    QString borderStyle = QString(R"(
+        QLineEdit {
+            background-color: %1;
+            color: %2;
+            font-size: 28px;
+            font-weight: 500;
+            border: 1px solid %3;
+            border-radius: 4px;
+            padding: 2px;
+            margin: 0px;
+            %4
+            %5
+            %6
+            %7
+        }
+        QLineEdit:hover {
+            background-color: %8;
+        }
+        QLineEdit:focus {
+            border: 2px solid #0984e3;
+            background-color: %9;
+        }
+        QLineEdit::placeholder {
+            color: %10;
+            font-size: 14px;
+        }
+    )")
+    .arg(isDarkTheme ? "#2d3436" : "#ffffff")
+    .arg(isDarkTheme ? "#ffffff" : "#2d3436")
+    .arg(isDarkTheme ? "#485460" : "#dfe6e9")
+    .arg(isTopEdge ? "border-top: 3px solid " + QString(isDarkTheme ? "#485460" : "#636e72") + ";" : "")
+    .arg(isBottomEdge ? "border-bottom: 3px solid " + QString(isDarkTheme ? "#485460" : "#636e72") + ";" : "")
+    .arg(isLeftEdge ? "border-left: 3px solid " + QString(isDarkTheme ? "#485460" : "#636e72") + ";" : "")
+    .arg(isRightEdge ? "border-right: 3px solid " + QString(isDarkTheme ? "#485460" : "#636e72") + ";" : "")
+    .arg(isDarkTheme ? "#485460" : "#f5f6fa")
+    .arg(isDarkTheme ? "#485460" : "#f5f6fa")
+    .arg(isDarkTheme ? "#a4b0be" : "#636e72");
+    
+    cell->setStyleSheet(borderStyle);
 }
 
 void SudokuGrid::validateInput(QLineEdit* cell) {
-    QString text = cell->text();
-    if (!text.isEmpty() && (text < "1" || text > "9")) {
+    if (!cell) return;
+    
+    QString text = cell->text().trimmed();
+    bool hasGridChanged = false;
+    
+    if (text.isEmpty()) {
         cell->clear();
+        hasGridChanged = true;
+    } else {
+        bool ok;
+        int value = text.toInt(&ok);
+        if (ok && value >= 1 && value <= 9) {
+            cell->setText(QString::number(value));
+            hasGridChanged = true;
+        } else {
+            cell->clear();
+            hasGridChanged = true;
+        }
     }
-    clearHighlighting();
+    
+    if (hasGridChanged) {
+        // Check validity and highlight conflicts
+        bool isValidNow = isValid();
+        emit validityChanged(isValidNow);
+        
+        if (!isValidNow) {
+            highlightConflicts();
+        } else {
+            clearHighlighting();
+        }
+        
+        emit gridChanged();
+        checkCompletion();
+    }
 }
 
 std::optional<int> SudokuGrid::getCellValue(int row, int col) const {
@@ -85,57 +167,61 @@ std::optional<int> SudokuGrid::getCellValue(int row, int col) const {
 }
 
 bool SudokuGrid::checkRowValid(int row) const {
-    std::set<int> numbers;
+    std::vector<bool> used(10, false);
     for (int col = 0; col < 9; ++col) {
-        auto value = getCellValue(row, col);
-        if (value && numbers.find(*value) != numbers.end()) {
-            return false;
+        QString text = cells[row][col]->text();
+        if (!text.isEmpty()) {
+            int num = text.toInt();
+            if (used[num]) return false;
+            used[num] = true;
         }
-        if (value) numbers.insert(*value);
     }
     return true;
 }
 
 bool SudokuGrid::checkColumnValid(int col) const {
-    std::set<int> numbers;
+    std::vector<bool> used(10, false);
     for (int row = 0; row < 9; ++row) {
-        auto value = getCellValue(row, col);
-        if (value && numbers.find(*value) != numbers.end()) {
-            return false;
+        QString text = cells[row][col]->text();
+        if (!text.isEmpty()) {
+            int num = text.toInt();
+            if (used[num]) return false;
+            used[num] = true;
         }
-        if (value) numbers.insert(*value);
     }
     return true;
 }
 
 bool SudokuGrid::checkBoxValid(int startRow, int startCol) const {
-    std::set<int> numbers;
+    std::vector<bool> used(10, false);
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
-            auto value = getCellValue(startRow + i, startCol + j);
-            if (value && numbers.find(*value) != numbers.end()) {
-                return false;
+            QString text = cells[startRow + i][startCol + j]->text();
+            if (!text.isEmpty()) {
+                int num = text.toInt();
+                if (used[num]) return false;
+                used[num] = true;
             }
-            if (value) numbers.insert(*value);
         }
     }
     return true;
 }
 
 bool SudokuGrid::isValid() const {
-    // Check rows and columns
+    // Check all rows
     for (int i = 0; i < 9; ++i) {
-        if (!checkRowValid(i) || !checkColumnValid(i)) {
-            return false;
-        }
+        if (!checkRowValid(i)) return false;
     }
     
-    // Check 3x3 boxes
+    // Check all columns
+    for (int i = 0; i < 9; ++i) {
+        if (!checkColumnValid(i)) return false;
+    }
+    
+    // Check all 3x3 boxes
     for (int i = 0; i < 9; i += 3) {
         for (int j = 0; j < 9; j += 3) {
-            if (!checkBoxValid(i, j)) {
-                return false;
-            }
+            if (!checkBoxValid(i, j)) return false;
         }
     }
     
@@ -143,29 +229,43 @@ bool SudokuGrid::isValid() const {
 }
 
 void SudokuGrid::highlightConflicts() {
+    // First clear any existing highlighting
     clearHighlighting();
     
-    // Helper lambda to highlight conflicts
-    auto highlightCell = [](QLineEdit* cell) {
-        QString style = cell->styleSheet();
-        style.replace("background-color: #ECF0F1", "background-color: #FADBD8");
-        style.replace("background-color: #D5DBDB", "background-color: #FADBD8");
-        cell->setStyleSheet(style);
-    };
+    // Track all cells that need highlighting
+    std::set<QLineEdit*> conflictCells;
     
-    // Check rows and columns
-    for (int i = 0; i < 9; ++i) {
-        if (!checkRowValid(i)) {
-            for (int j = 0; j < 9; ++j) {
-                if (!cells[i][j]->text().isEmpty()) {
-                    highlightCell(cells[i][j]);
+    // Check rows
+    for (int row = 0; row < 9; ++row) {
+        std::map<int, std::vector<QLineEdit*>> numbers;
+        for (int col = 0; col < 9; ++col) {
+            QString text = cells[row][col]->text();
+            if (!text.isEmpty()) {
+                numbers[text.toInt()].push_back(cells[row][col]);
+            }
+        }
+        for (const auto& pair : numbers) {
+            if (pair.second.size() > 1) {
+                for (QLineEdit* cell : pair.second) {
+                    conflictCells.insert(cell);
                 }
             }
         }
-        if (!checkColumnValid(i)) {
-            for (int j = 0; j < 9; ++j) {
-                if (!cells[j][i]->text().isEmpty()) {
-                    highlightCell(cells[j][i]);
+    }
+    
+    // Check columns
+    for (int col = 0; col < 9; ++col) {
+        std::map<int, std::vector<QLineEdit*>> numbers;
+        for (int row = 0; row < 9; ++row) {
+            QString text = cells[row][col]->text();
+            if (!text.isEmpty()) {
+                numbers[text.toInt()].push_back(cells[row][col]);
+            }
+        }
+        for (const auto& pair : numbers) {
+            if (pair.second.size() > 1) {
+                for (QLineEdit* cell : pair.second) {
+                    conflictCells.insert(cell);
                 }
             }
         }
@@ -174,16 +274,36 @@ void SudokuGrid::highlightConflicts() {
     // Check 3x3 boxes
     for (int boxRow = 0; boxRow < 9; boxRow += 3) {
         for (int boxCol = 0; boxCol < 9; boxCol += 3) {
-            if (!checkBoxValid(boxRow, boxCol)) {
-                for (int i = 0; i < 3; ++i) {
-                    for (int j = 0; j < 3; ++j) {
-                        if (!cells[boxRow + i][boxCol + j]->text().isEmpty()) {
-                            highlightCell(cells[boxRow + i][boxCol + j]);
-                        }
+            std::map<int, std::vector<QLineEdit*>> numbers;
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    QString text = cells[boxRow + i][boxCol + j]->text();
+                    if (!text.isEmpty()) {
+                        numbers[text.toInt()].push_back(cells[boxRow + i][boxCol + j]);
+                    }
+                }
+            }
+            for (const auto& pair : numbers) {
+                if (pair.second.size() > 1) {
+                    for (QLineEdit* cell : pair.second) {
+                        conflictCells.insert(cell);
                     }
                 }
             }
         }
+    }
+    
+    // Highlight all conflict cells
+    for (QLineEdit* cell : conflictCells) {
+        QString currentStyle = cell->styleSheet();
+        QString newStyle = currentStyle + QString(R"(
+            QLineEdit {
+                background-color: #ff6b6b;
+                color: white;
+                border: 2px solid #ff4757;
+            }
+        )");
+        cell->setStyleSheet(newStyle);
     }
 }
 
@@ -191,6 +311,14 @@ void SudokuGrid::clearHighlighting() {
     for (int i = 0; i < 9; ++i) {
         for (int j = 0; j < 9; ++j) {
             styleCell(cells[i][j], i, j);
+            if (cells[i][j] == currentCell) {
+                cells[i][j]->setStyleSheet(cells[i][j]->styleSheet() + QString(R"(
+                    QLineEdit {
+                        background-color: %1;
+                        border: 2px solid #0984e3;
+                    }
+                )").arg(isDarkTheme ? "#485460" : "#f5f6fa"));
+            }
         }
     }
 }
@@ -233,19 +361,366 @@ std::vector<std::vector<int>> SudokuGrid::getGrid() const {
 }
 
 void SudokuGrid::setGrid(const std::vector<std::vector<int>>& grid) {
+    bool wasValid = isValid();
+    bool hasGridChanged = false;
+    
     for (int i = 0; i < 9; ++i) {
         for (int j = 0; j < 9; ++j) {
-            int value = grid[i][j];
-            cells[i][j]->setText(value == 0 ? "" : QString::number(value));
+            QString newValue = grid[i][j] > 0 ? QString::number(grid[i][j]) : "";
+            if (cells[i][j]->text() != newValue) {
+                cells[i][j]->setText(newValue);
+                hasGridChanged = true;
+            }
         }
+    }
+    
+    if (hasGridChanged) {
+        bool isValidNow = isValid();
+        if (wasValid != isValidNow) {
+            emit validityChanged(isValidNow);
+        }
+        emit gridChanged();
+        checkCompletion();
     }
 }
 
 void SudokuGrid::clear() {
+    bool wasValid = isValid();
+    bool hasGridChanged = false;
+    
     for (int i = 0; i < 9; ++i) {
         for (int j = 0; j < 9; ++j) {
-            cells[i][j]->clear();
+            if (!cells[i][j]->text().isEmpty()) {
+                cells[i][j]->clear();
+                hasGridChanged = true;
+            }
         }
     }
+    
+    if (hasGridChanged) {
+        bool isValidNow = isValid();
+        if (wasValid != isValidNow) {
+            emit validityChanged(isValidNow);
+        }
+        emit gridChanged();
+    }
+    
+    notes.clear();
     clearHighlighting();
+}
+
+void SudokuGrid::applyTheme(bool isDark) {
+    isDarkTheme = isDark;
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            styleCell(cells[i][j], i, j);
+        }
+    }
+}
+
+void SudokuGrid::setHints(bool enabled) {
+    hintsEnabled = enabled;
+    if (!enabled && hintTimer) {
+        hintTimer->stop();
+    }
+}
+
+void SudokuGrid::undoMove() {
+    if (undoStack.empty()) return;
+    
+    redoStack.push_back(getCurrentState());
+    SudokuGrid::GridState prevState = undoStack.back();
+    undoStack.pop_back();
+    applyState(prevState);
+    emit gridChanged();
+}
+
+void SudokuGrid::redoMove() {
+    if (redoStack.empty()) return;
+    
+    undoStack.push_back(getCurrentState());
+    SudokuGrid::GridState nextState = redoStack.back();
+    redoStack.pop_back();
+    applyState(nextState);
+    emit gridChanged();
+}
+
+QString SudokuGrid::exportToString() const {
+    QString result;
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            QString value = cells[i][j]->text();
+            result += value.isEmpty() ? "0" : value;
+        }
+    }
+    return result;
+}
+
+bool SudokuGrid::importFromString(const QString& data) {
+    if (data.length() != 81) return false;
+    
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            QChar value = data[i * 9 + j];
+            if (!value.isDigit()) return false;
+            cells[i][j]->setText(value == '0' ? "" : QString(value));
+        }
+    }
+    
+    clearHighlighting();
+    emit gridChanged();
+    return true;
+}
+
+SudokuGrid::GridState SudokuGrid::getCurrentState() const {
+    SudokuGrid::GridState state;
+    state.values = getGrid();
+    state.moveCount = undoStack.size();
+    return state;
+}
+
+void SudokuGrid::applyState(const SudokuGrid::GridState& state) {
+    setGrid(state.values);
+    clearHighlighting();
+}
+
+void SudokuGrid::pushState() {
+    undoStack.push_back(getCurrentState());
+    redoStack.clear();
+    emit moveAdded();
+}
+
+void SudokuGrid::animateCell(QLineEdit* cell, const QString& color) {
+    if (!cell) return;
+    
+    QPropertyAnimation* animation = new QPropertyAnimation(cell, "styleSheet");
+    animation->setDuration(500);
+    
+    QString originalStyle = cell->styleSheet();
+    QString highlightStyle = originalStyle + QString(R"(
+        QLineEdit {
+            background-color: %1;
+            border: 2px solid %1;
+        }
+    )").arg(color);
+    
+    animation->setStartValue(originalStyle);
+    animation->setEndValue(highlightStyle);
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+    
+    // Reset style after animation
+    QTimer::singleShot(750, [cell, originalStyle]() {
+        cell->setStyleSheet(originalStyle);
+    });
+}
+
+void SudokuGrid::showPossibleValues(int row, int col) {
+    if (!hintsEnabled || !cells[row][col]->text().isEmpty()) return;
+    
+    std::set<int> used;
+    
+    // Check row
+    for (int j = 0; j < 9; ++j) {
+        auto value = getCellValue(row, j);
+        if (value) used.insert(*value);
+    }
+    
+    // Check column
+    for (int i = 0; i < 9; ++i) {
+        auto value = getCellValue(i, col);
+        if (value) used.insert(*value);
+    }
+    
+    // Check 3x3 box
+    int boxRow = (row / 3) * 3;
+    int boxCol = (col / 3) * 3;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            auto value = getCellValue(boxRow + i, boxCol + j);
+            if (value) used.insert(*value);
+        }
+    }
+    
+    // Show possible values with subtle highlighting
+    QString hintColor = isDarkTheme ? "#00b894" : "#0984e3";
+    for (int num = 1; num <= 9; ++num) {
+        if (used.find(num) == used.end()) {
+            QLineEdit* hintCell = cells[row][col];
+            QString currentStyle = hintCell->styleSheet();
+            hintCell->setStyleSheet(currentStyle + QString(
+                "QLineEdit {"
+                "   border: 2px dashed %1;"
+                "}"
+            ).arg(hintColor));
+            
+            QTimer::singleShot(1500, [hintCell, currentStyle]() {
+                hintCell->setStyleSheet(currentStyle);
+            });
+        }
+    }
+}
+
+void SudokuGrid::checkCompletion() {
+    if (!isFull() || !isValid()) {
+        return;
+    }
+    
+    // Get current grid state
+    GridState state = getCurrentState();
+    
+    // Check if all cells are filled correctly
+    bool isComplete = true;
+    for (int i = 0; i < 9 && isComplete; ++i) {
+        for (int j = 0; j < 9 && isComplete; ++j) {
+            if (!cells[i][j]->text().isEmpty()) {
+                int value = cells[i][j]->text().toInt();
+                if (value < 1 || value > 9) {
+                    isComplete = false;
+                }
+            } else {
+                isComplete = false;
+            }
+        }
+    }
+    
+    if (isComplete) {
+        // Calculate time taken (for now just emit 0)
+        emit puzzleSolved(0);
+    }
+}
+
+void SudokuGrid::toggleNote(QLineEdit* cell, int number) {
+    if (!cell || number < 1 || number > 9) return;
+    
+    auto it = notes.find(cell);
+    if (it == notes.end()) {
+        notes[cell] = std::vector<int>{number};
+    } else {
+        auto& cellNotes = it->second;
+        auto numIt = std::find(cellNotes.begin(), cellNotes.end(), number);
+        if (numIt == cellNotes.end()) {
+            cellNotes.push_back(number);
+            std::sort(cellNotes.begin(), cellNotes.end());
+        } else {
+            cellNotes.erase(numIt);
+        }
+    }
+    
+    updateCellNotes(cell);
+}
+
+void SudokuGrid::updateCellNotes(QLineEdit* cell) {
+    if (!cell) return;
+    
+    auto it = notes.find(cell);
+    if (it == notes.end() || it->second.empty()) {
+        cell->setPlaceholderText("");
+        return;
+    }
+    
+    QString noteText;
+    for (int num : it->second) {
+        if (!noteText.isEmpty()) noteText += " ";
+        noteText += QString::number(num);
+    }
+    
+    cell->setPlaceholderText(noteText);
+    cell->setStyleSheet(cell->styleSheet() + QString(R"(
+        QLineEdit::placeholder {
+            color: %1;
+            font-size: 12px;
+        }
+    )").arg(isDarkTheme ? "#a4b0be" : "#636e72"));
+}
+
+void SudokuGrid::setNotesMode(bool enabled) {
+    notesMode = enabled;
+    
+    // Update cursor for visual feedback
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            cells[i][j]->setCursor(enabled ? Qt::CrossCursor : Qt::IBeamCursor);
+        }
+    }
+}
+
+bool SudokuGrid::isNotesMode() const {
+    return notesMode;
+}
+
+void SudokuGrid::showHint() {
+    // Get current grid state
+    std::vector<std::vector<int>> currentGrid = getGrid();
+    solver.setGrid(currentGrid);
+    
+    if (!solver.solve()) {
+        return;  // No solution exists
+    }
+    
+    std::vector<std::vector<int>> solution = solver.getGrid();
+    std::vector<std::pair<int, int>> emptyCells;
+    
+    // Find all empty cells
+    for (int i = 0; i < 9; ++i) {
+        for (int j = 0; j < 9; ++j) {
+            if (cells[i][j]->text().isEmpty()) {
+                emptyCells.push_back({i, j});
+            }
+        }
+    }
+    
+    if (emptyCells.empty()) return;
+    
+    // Choose a random empty cell
+    int index = static_cast<int>(QRandomGenerator::global()->bounded(static_cast<quint32>(emptyCells.size())));
+    auto [row, col] = emptyCells[index];
+    
+    // Show the hint with animation
+    QLineEdit* cell = cells[row][col];
+    cell->setText(QString::number(solution[row][col]));
+    
+    animateCell(cell, "#0984e3");
+}
+
+void SudokuGrid::newGame(const QString& difficulty) {
+    // Clear current grid
+    clear();
+    notes.clear();
+    
+    // Define puzzles for each difficulty
+    const std::map<QString, std::vector<QString>> puzzles = {
+        {"Easy", {
+            "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
+            "170000006000061000004000700060004003080070050500800070007000400000150000200000098",
+            "200080300060070084030500209000105408000000000402706000301007040720040060004010003"
+        }},
+        {"Medium", {
+            "009000400200009000087002090030070502000000000704050060070200140000800007006000800",
+            "020000000000600003074080000000003002080040010600500000000010780500009000000000040",
+            "000000907000420180000705026100904000050000040000507009920108000034059000507000000"
+        }},
+        {"Hard", {
+            "400000805030000000000700000020000060000080400000010000000603070500200000104000000",
+            "520006000000000701300000000000400800600000050000000000041800000000030020008700000",
+            "600000803040700000000000000000504070300200000106000000020000050000080600000010000"
+        }},
+        {"Expert", {
+            "800000000003600000070090200050007000000045700000100030001000068008500010090000400",
+            "000000085000210009960080100500800016000000000890006007009070052300054000480000000",
+            "000200000000060700700000009800000040010000050040000003200000004003010000000008000"
+        }}
+    };
+    
+    // Select a random puzzle for the chosen difficulty
+    auto it = puzzles.find(difficulty);
+    if (it != puzzles.end()) {
+        int index = static_cast<int>(QRandomGenerator::global()->bounded(static_cast<quint32>(it->second.size())));
+        importFromString(it->second[index]);
+    } else {
+        // Fallback to an easy puzzle if difficulty not found
+        importFromString(puzzles.at("Easy")[0]);
+    }
+    
+    // Save initial state
+    pushState();
 } 
