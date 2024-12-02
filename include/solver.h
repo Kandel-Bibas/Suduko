@@ -11,43 +11,47 @@ public:
     std::unique_ptr<Node> right;
 
     Node(char ch) : character(ch), isEndOfWord(false) {}
+    Node(const Node& other) : character(other.character), isEndOfWord(other.isEndOfWord) {
+        if (other.left) left = std::make_unique<Node>(*other.left);
+        if (other.middle) middle = std::make_unique<Node>(*other.middle);
+        if (other.right) right = std::make_unique<Node>(*other.right);
+    }
 };
 
 class TernarySearchTree {
 private:
     std::unique_ptr<Node> root;
     
-    Node* insert(Node* node, char character) {
+    std::unique_ptr<Node> insert(std::unique_ptr<Node> node, char character) {
         if (!node) {
-            return new Node(character);
+            return std::make_unique<Node>(character);
         }
         if (character < node->character) {
-            node->left.reset(insert(node->left.get(), character));
+            node->left = insert(std::move(node->left), character);
         } else if (character > node->character) {
-            node->right.reset(insert(node->right.get(), character));
+            node->right = insert(std::move(node->right), character);
         } else {
             node->isEndOfWord = true;
         }
         return node;
     }
 
-    bool search(Node* node, char character) const {
+    bool search(const Node* node, char character) const {
         if (!node) return false;
         if (character < node->character) return search(node->left.get(), character);
         if (character > node->character) return search(node->right.get(), character);
         return node->isEndOfWord;
     }
 
-    Node* deleteNode(Node* node, char character) {
+    std::unique_ptr<Node> deleteNode(std::unique_ptr<Node> node, char character) {
         if (!node) return nullptr;
         if (character < node->character) {
-            node->left.reset(deleteNode(node->left.get(), character));
+            node->left = deleteNode(std::move(node->left), character);
         } else if (character > node->character) {
-            node->right.reset(deleteNode(node->right.get(), character));
+            node->right = deleteNode(std::move(node->right), character);
         } else {
             node->isEndOfWord = false;
             if (!node->left && !node->middle && !node->right) {
-                delete node;
                 return nullptr;
             }
         }
@@ -61,8 +65,24 @@ public:
         }
     }
 
+    TernarySearchTree(const TernarySearchTree& other) {
+        if (other.root) {
+            root = std::make_unique<Node>(*other.root);
+        }
+    }
+
+    TernarySearchTree& operator=(const TernarySearchTree& other) {
+        if (this != &other) {
+            root.reset();
+            if (other.root) {
+                root = std::make_unique<Node>(*other.root);
+            }
+        }
+        return *this;
+    }
+
     void insert(char character) {
-        root.reset(insert(root.get(), character));
+        root = insert(std::move(root), character);
     }
 
     bool search(char character) const {
@@ -70,7 +90,7 @@ public:
     }
 
     void deleteCharacter(char character) {
-        root.reset(deleteNode(root.get(), character));
+        root = deleteNode(std::move(root), character);
     }
 
     bool isEmpty() const {

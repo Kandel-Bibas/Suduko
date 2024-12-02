@@ -7,13 +7,15 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QStatusBar>
+#include <QFrame>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , solver(std::vector<std::vector<int>>(9, std::vector<int>(9, 0)))
 {
     setWindowTitle("Sudoku Solver");
-    setMinimumSize(500, 600);
+    setMinimumSize(600, 800);
+    setStyleSheet("QMainWindow { background-color: #2C3E50; }");
 
     // Create menu bar
     createMenus();
@@ -22,19 +24,59 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(centralWidget);
     
     mainLayout = new QVBoxLayout(centralWidget);
+    mainLayout->setSpacing(20);
+    mainLayout->setContentsMargins(30, 30, 30, 30);
     
     // Add title
     QLabel* titleLabel = new QLabel("Sudoku Solver", this);
-    titleLabel->setStyleSheet("QLabel { font-size: 24px; font-weight: bold; margin: 10px; }");
+    titleLabel->setStyleSheet(
+        "QLabel { "
+        "   color: white; "
+        "   font-size: 32px; "
+        "   font-weight: bold; "
+        "   margin: 20px; "
+        "   font-family: 'Arial', sans-serif; "
+        "}"
+    );
     titleLabel->setAlignment(Qt::AlignCenter);
     mainLayout->addWidget(titleLabel);
+
+    // Create message label
+    messageLabel = new QLabel(this);
+    messageLabel->setStyleSheet(
+        "QLabel { "
+        "   color: white; "
+        "   font-size: 16px; "
+        "   padding: 10px; "
+        "   border-radius: 5px; "
+        "   background-color: #34495E; "
+        "   margin: 10px; "
+        "}"
+    );
+    messageLabel->setAlignment(Qt::AlignCenter);
+    messageLabel->setWordWrap(true);
+    messageLabel->hide();
+    mainLayout->addWidget(messageLabel);
+    
+    // Create a frame for the grid
+    QFrame* gridFrame = new QFrame(this);
+    gridFrame->setStyleSheet(
+        "QFrame { "
+        "   background-color: #34495E; "
+        "   border-radius: 10px; "
+        "   padding: 20px; "
+        "}"
+    );
+    QVBoxLayout* gridFrameLayout = new QVBoxLayout(gridFrame);
     
     // Create grid widget
     gridWidget = new SudokuGrid(this);
-    mainLayout->addWidget(gridWidget);
+    gridFrameLayout->addWidget(gridWidget);
+    mainLayout->addWidget(gridFrame);
     
     // Create button layout
     QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(15);
     
     // Create buttons
     solveButton = new QPushButton("Solve", this);
@@ -43,11 +85,26 @@ MainWindow::MainWindow(QWidget *parent)
     QPushButton* loadExampleButton = new QPushButton("Load Example", this);
     
     // Style buttons
-    QString buttonStyle = "QPushButton { padding: 10px; border-radius: 5px; min-width: 100px; }";
-    solveButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #4CAF50; color: white; } QPushButton:hover { background-color: #45a049; }");
-    clearButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #f44336; color: white; } QPushButton:hover { background-color: #da190b; }");
-    validateButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #2196F3; color: white; } QPushButton:hover { background-color: #1976D2; }");
-    loadExampleButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #FF9800; color: white; } QPushButton:hover { background-color: #F57C00; }");
+    QString buttonStyle = 
+        "QPushButton { "
+        "   padding: 15px 30px; "
+        "   border-radius: 8px; "
+        "   font-size: 16px; "
+        "   font-weight: bold; "
+        "   font-family: 'Arial', sans-serif; "
+        "   min-width: 120px; "
+        "} "
+        "QPushButton:hover { "
+        "   opacity: 0.9; "
+        "} "
+        "QPushButton:pressed { "
+        "   opacity: 0.7; "
+        "}";
+    
+    loadExampleButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #F39C12; color: white; }");
+    validateButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #3498DB; color: white; }");
+    solveButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #2ECC71; color: white; }");
+    clearButton->setStyleSheet(buttonStyle + "QPushButton { background-color: #E74C3C; color: white; }");
     
     buttonLayout->addWidget(loadExampleButton);
     buttonLayout->addWidget(validateButton);
@@ -56,38 +113,68 @@ MainWindow::MainWindow(QWidget *parent)
     
     mainLayout->addLayout(buttonLayout);
     
-    // Create status bar
-    statusBar()->showMessage("Ready");
-    
     // Connect signals
     connect(solveButton, &QPushButton::clicked, this, &MainWindow::onSolveClicked);
     connect(clearButton, &QPushButton::clicked, this, &MainWindow::onClearClicked);
     connect(validateButton, &QPushButton::clicked, this, [this]() {
         gridWidget->highlightConflicts();
         if (gridWidget->isValid()) {
-            statusBar()->showMessage("Puzzle is valid!", 3000);
+            showMessage("Puzzle is valid!", "#2ECC71");
         } else {
-            statusBar()->showMessage("Puzzle contains conflicts!", 3000);
+            showMessage("Puzzle contains conflicts!", "#E74C3C");
         }
     });
     connect(loadExampleButton, &QPushButton::clicked, this, [this]() {
         gridWidget->loadExample();
-        statusBar()->showMessage("Example puzzle loaded", 3000);
+        showMessage("Example puzzle loaded", "#F39C12");
     });
     
     connect(gridWidget, &SudokuGrid::gridChanged, this, [this]() {
-        statusBar()->showMessage("Grid updated", 1000);
+        messageLabel->hide();
     });
     
     connect(gridWidget, &SudokuGrid::validityChanged, this, [this](bool isValid) {
         solveButton->setEnabled(isValid);
         if (!isValid) {
-            statusBar()->showMessage("Invalid puzzle configuration", 3000);
+            showMessage("Invalid puzzle configuration", "#E74C3C");
         }
     });
 }
 
+void MainWindow::showMessage(const QString& message, const QString& color) {
+    messageLabel->setStyleSheet(
+        QString("QLabel { "
+                "   color: white; "
+                "   font-size: 16px; "
+                "   padding: 10px; "
+                "   border-radius: 5px; "
+                "   background-color: %1; "
+                "   margin: 10px; "
+                "}").arg(color)
+    );
+    messageLabel->setText(message);
+    messageLabel->show();
+}
+
 void MainWindow::createMenus() {
+    menuBar()->setStyleSheet(
+        "QMenuBar { "
+        "   background-color: #34495E; "
+        "   color: white; "
+        "} "
+        "QMenuBar::item:selected { "
+        "   background-color: #2C3E50; "
+        "} "
+        "QMenu { "
+        "   background-color: #34495E; "
+        "   color: white; "
+        "   border: 1px solid #2C3E50; "
+        "} "
+        "QMenu::item:selected { "
+        "   background-color: #2C3E50; "
+        "}"
+    );
+    
     QMenu *fileMenu = menuBar()->addMenu("&File");
     
     QAction *newAction = fileMenu->addAction("&New");
@@ -123,7 +210,7 @@ void MainWindow::createMenus() {
 
 void MainWindow::onSolveClicked() {
     if (!gridWidget->isValid()) {
-        QMessageBox::warning(this, "Invalid Puzzle", "The current puzzle configuration is invalid. Please fix the conflicts first.");
+        showMessage("The current puzzle configuration is invalid. Please fix the conflicts first.", "#E74C3C");
         return;
     }
     
@@ -132,14 +219,13 @@ void MainWindow::onSolveClicked() {
     
     if (solver.solve()) {
         gridWidget->setGrid(solver.getGrid());
-        statusBar()->showMessage("Puzzle solved successfully!", 3000);
+        showMessage("Puzzle solved successfully!", "#2ECC71");
     } else {
-        QMessageBox::warning(this, "No Solution", "No solution exists for this puzzle!");
-        statusBar()->showMessage("No solution found", 3000);
+        showMessage("No solution exists for this puzzle!", "#E74C3C");
     }
 }
 
 void MainWindow::onClearClicked() {
     gridWidget->clear();
-    statusBar()->showMessage("Grid cleared", 3000);
+    showMessage("Grid cleared", "#3498DB");
 } 

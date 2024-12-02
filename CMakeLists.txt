@@ -18,6 +18,11 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# Set Qt path for macOS
+if(APPLE)
+    set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt@6")
+endif()
+
 # Find Qt packages
 find_package(Qt6 COMPONENTS Widgets REQUIRED)
 

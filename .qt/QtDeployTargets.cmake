@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_SudokuSolver_FILE /Users/mandipadk/Mandip/Programming/Suduko/bin/SudokuSolver)
+set(__QT_DEPLOY_TARGET_SudokuSolver_TYPE EXECUTABLE)
