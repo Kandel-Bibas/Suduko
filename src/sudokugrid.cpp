@@ -16,7 +16,7 @@ void SudokuGrid::createGrid() {
             auto cell = new QLineEdit(this);
             cell->setAlignment(Qt::AlignCenter);
             cell->setMaxLength(1);
-            cell->setFixedSize(45, 45);
+            cell->setFixedSize(50, 50);
             
             // Set input validation for numbers 1-9 only
             QRegularExpression rx("[1-9]");
@@ -37,23 +37,37 @@ void SudokuGrid::createGrid() {
 }
 
 void SudokuGrid::styleCell(QLineEdit* cell, int row, int col) {
-    QString borderStyle = "QLineEdit { "
-                         "background-color: white; "
-                         "font-size: 20px; "
-                         "font-weight: bold; ";
-    
+    QString baseStyle = 
+        "QLineEdit { "
+        "   background-color: #ECF0F1; "
+        "   color: #2C3E50; "
+        "   font-size: 24px; "
+        "   font-weight: bold; "
+        "   font-family: 'Arial', sans-serif; "
+        "   border: 1px solid #BDC3C7; ";
+
     // Add borders based on 3x3 grid sections
     if (row % 3 == 0 && row != 0) {
-        borderStyle += "border-top: 2px solid black; ";
+        baseStyle += "border-top: 2px solid #2C3E50; ";
     }
     if (col % 3 == 0 && col != 0) {
-        borderStyle += "border-left: 2px solid black; ";
+        baseStyle += "border-left: 2px solid #2C3E50; ";
     }
     
-    borderStyle += "border: 1px solid gray; }";
-    borderStyle += "QLineEdit:focus { background-color: #f0f0f0; }";
-    borderStyle += "QLineEdit[readOnly=\"true\"] { background-color: #e8e8e8; color: #666666; }";
-    cell->setStyleSheet(borderStyle);
+    baseStyle += "} "
+                 "QLineEdit:focus { "
+                 "   background-color: #D5DBDB; "
+                 "   border: 2px solid #3498DB; "
+                 "} "
+                 "QLineEdit:hover { "
+                 "   background-color: #D5DBDB; "
+                 "} "
+                 "QLineEdit[readOnly=\"true\"] { "
+                 "   background-color: #BDC3C7; "
+                 "   color: #7F8C8D; "
+                 "}";
+    
+    cell->setStyleSheet(baseStyle);
 }
 
 void SudokuGrid::validateInput(QLineEdit* cell) {
@@ -134,7 +148,8 @@ void SudokuGrid::highlightConflicts() {
     // Helper lambda to highlight conflicts
     auto highlightCell = [](QLineEdit* cell) {
         QString style = cell->styleSheet();
-        style.replace("background-color: white", "background-color: #ffebee");
+        style.replace("background-color: #ECF0F1", "background-color: #FADBD8");
+        style.replace("background-color: #D5DBDB", "background-color: #FADBD8");
         cell->setStyleSheet(style);
     };
     
